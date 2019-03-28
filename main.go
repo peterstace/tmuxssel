@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -9,13 +10,13 @@ import (
 )
 
 func main() {
-
-	// TODO: Fetch list of existing tmux sessions.
-
-	// TODO: Fetch list of directories we'd wish to create sessions for.
-
 	var sessionToDirMu sync.Mutex
 	sessionToDir := make(map[string]string)
+
+	fzfCh := make(chan string)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	go func() {
 		sessions, err := TmuxSessionList()
@@ -25,12 +26,14 @@ func main() {
 		sessionToDirMu.Lock()
 		for _, s := range sessions {
 			sessionToDir[s] = ""
-			// TODO: also send s to fzf
 		}
 		sessionToDirMu.Unlock()
+		for _, s := range sessions {
+			fzfCh <- s
+		}
+		wg.Done()
 	}()
 
-	paths := make(chan string)
 	go func() {
 		if err := filepath.Walk("/home/petsta", func(path string, info os.FileInfo, err error) error {
 			if !info.IsDir() {
@@ -46,7 +49,11 @@ func main() {
 			}
 			for _, child := range children {
 				if child.Name() == ".git" {
-					paths <- path
+					sessionToDirMu.Lock()
+					sess := sessionName(path)
+					sessionToDir[sess] = path
+					sessionToDirMu.Unlock()
+					fzfCh <- sess
 					return filepath.SkipDir
 				}
 			}
@@ -54,16 +61,19 @@ func main() {
 		}); err != nil {
 			log.Fatalf("couldn't walk filesystem: %v", err)
 		}
-		close(paths)
+		wg.Done()
 	}()
 
-	for p := range paths {
-		sessionToDirMu.Lock()
-		sess := sessionName(p)
-		sessionToDir[sess] = p
-		// TODO: also send sess to fzf
-		sessionToDirMu.Unlock()
+	go func() {
+		wg.Wait()
+		close(fzfCh)
+	}()
+
+	got, ok, err := FZF(fzfCh)
+	if err != nil {
+		log.Fatalf("fzf: %v", err)
 	}
+	fmt.Println(got, ok, sessionToDir[got])
 }
 
 type Session struct {
@@ -73,5 +83,6 @@ type Session struct {
 
 func sessionName(path string) string {
 	parts := strings.Split(path, "/")
-	return strings.Join(parts[len(parts)-2:], ",")
+	sess := strings.Join(parts[len(parts)-2:], "/")
+	return strings.ReplaceAll(sess, ".", ",")
 }

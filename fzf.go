@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 )
 
@@ -17,7 +18,7 @@ func init() {
 func FZF(input <-chan string) (string, bool, error) {
 	cmd := exec.Command("fzf")
 	cmd.Stdout = new(bytes.Buffer)
-	cmd.Stderr = new(bytes.Buffer)
+	cmd.Stderr = os.Stderr
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
