@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -73,12 +72,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("fzf: %v", err)
 	}
-	fmt.Println(got, ok, sessionToDir[got])
-}
 
-type Session struct {
-	Name string
-	Dir  string // empty if session already exists
+	if !TmuxSessionExists(got) {
+		TmuxNewSession(got, sessionToDir[got])
+	}
+	TmuxSwitchSession(got)
 }
 
 func sessionName(path string) string {
