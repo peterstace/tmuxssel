@@ -24,12 +24,12 @@ func main() {
 		}
 		sessionToDirMu.Lock()
 		for _, s := range sessions {
-			sessionToDir[s] = ""
+			if _, ok := sessionToDir[s]; !ok {
+				sessionToDir[s] = ""
+				fzfCh <- s
+			}
 		}
 		sessionToDirMu.Unlock()
-		for _, s := range sessions {
-			fzfCh <- s
-		}
 		wg.Done()
 	}()
 
@@ -50,9 +50,11 @@ func main() {
 				if child.Name() == ".git" {
 					sessionToDirMu.Lock()
 					sess := sessionName(path)
-					sessionToDir[sess] = path
+					if _, ok := sessionToDir[sess]; !ok {
+						sessionToDir[sess] = path
+						fzfCh <- sess
+					}
 					sessionToDirMu.Unlock()
-					fzfCh <- sess
 					return filepath.SkipDir
 				}
 			}
