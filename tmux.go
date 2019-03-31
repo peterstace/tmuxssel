@@ -47,7 +47,7 @@ func TmuxSessionExists(name string) bool {
 	if err == nil {
 		return true
 	}
-	if e, ok := err.(*exec.ExitError); ok {
+	if _, ok := err.(*exec.ExitError); ok {
 		return false
 	}
 	panic(err)

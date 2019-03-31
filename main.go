@@ -72,6 +72,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("fzf: %v", err)
 	}
+	if !ok {
+		return
+	}
 
 	if !TmuxSessionExists(got) {
 		TmuxNewSession(got, sessionToDir[got])
