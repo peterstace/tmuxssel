@@ -34,7 +34,7 @@ func main() {
 	}()
 
 	go func() {
-		if err := filepath.Walk("/home/petsta", func(path string, info os.FileInfo, err error) error {
+		if err := filepath.Walk(home(), func(path string, info os.FileInfo, err error) error {
 			if os.IsPermission(err) {
 				return filepath.SkipDir
 			}
@@ -91,4 +91,11 @@ func sessionName(path string) string {
 	parts := strings.Split(path, "/")
 	sess := strings.Join(parts[len(parts)-2:], "/")
 	return strings.ReplaceAll(sess, ".", ",")
+}
+
+func home() string {
+	if h, ok := os.LookupEnv("HOME"); ok {
+		return h
+	}
+	return "/"
 }
