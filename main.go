@@ -35,6 +35,9 @@ func main() {
 
 	go func() {
 		if err := filepath.Walk("/home/petsta", func(path string, info os.FileInfo, err error) error {
+			if os.IsPermission(err) {
+				return filepath.SkipDir
+			}
 			if !info.IsDir() {
 				return nil
 			}
