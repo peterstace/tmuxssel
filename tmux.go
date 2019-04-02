@@ -34,13 +34,6 @@ func TmuxSessionList() ([]string, error) {
 	return sessions, nil
 }
 
-func execCmd(args ...string) {
-	out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
-	if err != nil {
-		panic(string(out))
-	}
-}
-
 func TmuxSessionExists(name string) bool {
 	cmd := exec.Command("tmux", "has-session", "-t", "="+name)
 	err := cmd.Run()
@@ -54,13 +47,23 @@ func TmuxSessionExists(name string) bool {
 }
 
 func TmuxNewSession(name, dir string) {
-	execCmd("tmux", "new-session", "-s", name, "-c", dir, "-d")
+	cmd := exec.Command("tmux", "new-session", "-s", name, "-c", dir, "-d")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	if err := cmd.Run(); err != nil {
+		panic(err)
+	}
 }
 
 func TmuxSwitchSession(name string) {
+	subcommand := "switch-client"
 	if os.Getenv("TMUX") == "" {
-		execCmd("tmux", "attach-session", "-t", "="+name)
-	} else {
-		execCmd("tmux", "switch-client", "-t", "="+name)
+		subcommand = "attach-session"
+	}
+	cmd := exec.Command("tmux", subcommand, "-t", "="+name)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	if err := cmd.Run(); err != nil {
+		panic(err)
 	}
 }
