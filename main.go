@@ -4,7 +4,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -85,12 +84,6 @@ func main() {
 		TmuxNewSession(got, sessionToDir[got])
 	}
 	TmuxSwitchSession(got)
-}
-
-func sessionName(path string) string {
-	parts := strings.Split(path, "/")
-	sess := strings.Join(parts[len(parts)-2:], "/")
-	return strings.ReplaceAll(sess, ".", ",")
 }
 
 func home() string {
