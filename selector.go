@@ -12,12 +12,12 @@ type selector struct {
 	sessionToDir   map[string]string
 }
 
-func (s *selector) fzfSelect() (string, bool) {
+func (s *selector) fzfSelect() (string, string, bool) {
 	got, ok, err := FZF(s.ch)
 	if err != nil {
 		log.Fatalf("fzf: %v", err)
 	}
-	return got, ok
+	return got, s.sessionToDir[got], ok
 }
 
 func (s *selector) addExistingSession(name string) {
