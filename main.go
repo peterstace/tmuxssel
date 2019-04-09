@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -39,6 +40,9 @@ func main() {
 			}
 			if !info.IsDir() {
 				return nil
+			}
+			if strings.Contains(path, ".cargo/registry/index") {
+				return filepath.SkipDir
 			}
 			dir, err := os.Open(path)
 			if err != nil {
