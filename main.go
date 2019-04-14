@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -8,11 +10,26 @@ import (
 	"sync"
 )
 
-func main() {
-	//var sessionToDirMu sync.Mutex
-	//sessionToDir := make(map[string]string)
+type stringsFlag struct {
+	values []string
+}
 
-	//fzfCh := make(chan string)
+func (s *stringsFlag) String() string {
+	if s == nil {
+		return "[]"
+	}
+	return fmt.Sprintf("%v", s.values)
+}
+
+func (s *stringsFlag) Set(v string) error {
+	s.values = append(s.values, v)
+	return nil
+}
+
+func main() {
+	var ignore stringsFlag
+	flag.Var(&ignore, "ignore", "path fragments to ignore when searching for git repos")
+	flag.Parse()
 
 	sel := selector{
 		ch:           make(chan string, 16),
@@ -41,8 +58,10 @@ func main() {
 			if !info.IsDir() {
 				return nil
 			}
-			if strings.Contains(path, ".cargo/registry/index") {
-				return filepath.SkipDir
+			for _, ig := range ignore.values {
+				if strings.Contains(path, ig) {
+					return filepath.SkipDir
+				}
 			}
 			dir, err := os.Open(path)
 			if err != nil {
