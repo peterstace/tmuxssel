@@ -28,7 +28,9 @@ func (s *stringsFlag) Set(v string) error {
 
 func main() {
 	var ignore stringsFlag
+	var walkStart string
 	flag.Var(&ignore, "ignore", "path fragments to ignore when searching for git repos")
+	flag.StringVar(&walkStart, "walk-start", home(), "path to start walking from")
 	flag.Parse()
 
 	sel := selector{
@@ -51,7 +53,7 @@ func main() {
 	}()
 
 	go func() {
-		if err := filepath.Walk(home(), func(path string, info os.FileInfo, err error) error {
+		if err := filepath.Walk(walkStart, func(path string, info os.FileInfo, err error) error {
 			if os.IsPermission(err) {
 				return filepath.SkipDir
 			}
