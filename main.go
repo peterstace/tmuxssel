@@ -26,6 +26,13 @@ func (s *stringsFlag) Set(v string) error {
 	return nil
 }
 
+func home() string {
+	if h, ok := os.LookupEnv("HOME"); ok {
+		return h
+	}
+	return "/"
+}
+
 func main() {
 	var ignore stringsFlag
 	var walkStart string
@@ -33,6 +40,10 @@ func main() {
 	flag.StringVar(&walkStart, "walk-start", home(), "path to start walking from")
 	flag.Parse()
 
+	run(walkStart, ignore.values)
+}
+
+func run(walkStart string, ignore []string) {
 	sel := selector{
 		ch:           make(chan string, 16),
 		sessionToDir: make(map[string]string),
@@ -60,7 +71,7 @@ func main() {
 			if !info.IsDir() {
 				return nil
 			}
-			for _, ig := range ignore.values {
+			for _, ig := range ignore {
 				if strings.Contains(path, ig) {
 					return filepath.SkipDir
 				}
@@ -100,11 +111,4 @@ func main() {
 		TmuxNewSession(sess, dir)
 	}
 	TmuxSwitchSession(sess)
-}
-
-func home() string {
-	if h, ok := os.LookupEnv("HOME"); ok {
-		return h
-	}
-	return "/"
 }
