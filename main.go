@@ -33,20 +33,41 @@ func home() string {
 	return "/"
 }
 
+type findAndReplace struct {
+	find, replace string
+}
+
 func main() {
-	var ignore stringsFlag
+	var ignore, findAndReplaces stringsFlag
 	var walkStart string
 	flag.Var(&ignore, "ignore", "path fragments to ignore when searching for git repos")
+	flag.Var(&findAndReplaces, "find-and-replace", "git-repo-path to session-name find-and-replace directives (in the format FIND:REPLACE)")
 	flag.StringVar(&walkStart, "walk-start", home(), "path to start walking from")
 	flag.Parse()
 
-	run(walkStart, ignore.values)
+	var fnrs []findAndReplace
+	for _, pair := range findAndReplaces.values {
+		find, replace, ok := strings.Cut(pair, ":")
+		if !ok {
+			fmt.Fprint(os.Stderr, "rename directive must be in the format: FIND:REPLACE")
+			os.Exit(1)
+		}
+		fnrs = append(fnrs, findAndReplace{find, replace})
+	}
+
+	run(walkStart, ignore.values, fnrs)
 }
 
-func run(walkStart string, ignore []string) {
+func run(walkStart string, ignore []string, fnrs []findAndReplace) {
 	sel := selector{
 		ch:           make(chan string, 16),
 		sessionToDir: make(map[string]string),
+		pathToSession: func(path string) string {
+			for _, fnr := range fnrs {
+				path = strings.ReplaceAll(path, fnr.find, fnr.replace)
+			}
+			return path
+		},
 	}
 
 	var wg sync.WaitGroup

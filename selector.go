@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"strings"
 	"sync"
 )
 
@@ -10,6 +9,7 @@ type selector struct {
 	ch             chan string
 	sessionToDirMu sync.Mutex
 	sessionToDir   map[string]string
+	pathToSession  func(string) string
 }
 
 func (s *selector) fzfSelect() (string, string, bool) {
@@ -30,7 +30,7 @@ func (s *selector) addExistingSession(name string) {
 }
 
 func (s *selector) addPath(path string) {
-	name := sessionName(path)
+	name := s.pathToSession(path)
 	s.sessionToDirMu.Lock()
 	if _, ok := s.sessionToDir[name]; !ok {
 		s.ch <- name
@@ -41,10 +41,4 @@ func (s *selector) addPath(path string) {
 
 func (s *selector) finishedAdding() {
 	close(s.ch)
-}
-
-func sessionName(path string) string {
-	parts := strings.Split(path, "/")
-	sess := strings.Join(parts[len(parts)-2:], "/")
-	return strings.ReplaceAll(sess, ".", ",")
 }
