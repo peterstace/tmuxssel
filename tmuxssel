@@ -102,8 +102,11 @@ def fzf(lines):
         except BrokenPipeError:
             pass
     out = proc.stdout.read()
-    if proc.wait() != 0:
+    status = proc.wait()
+    if status in (1, 130):  # no match, or cancelled
         return None
+    if status != 0:
+        sys.exit(f"fzf exited with status {status}")
     return out.rstrip("\n")
 
 
