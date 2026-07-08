@@ -60,7 +60,7 @@ With these directives, the repository at
 To bind it to a tmux key (tmux 3.2+):
 
 ```
-bind-key S display-popup -E tmuxssel
+bind-key S display-popup -E "tmuxssel --ignore .cache ..."
 ```
 
 ## Behaviour
