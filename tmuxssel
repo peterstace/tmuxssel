@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Pick a tmux session with fzf, from existing sessions and git repos.
-
-Existing tmux sessions and git repositories found by walking the
-filesystem are streamed into fzf as they are discovered. Selecting an
-entry switches to the corresponding session, creating it first if it
-doesn't already exist.
-"""
 
 import argparse
 import os
