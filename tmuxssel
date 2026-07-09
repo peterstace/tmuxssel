@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import subprocess
+import sys
+
+
+def main():
+    args = parse_args()
+    fnrs = [parse_find_and_replace(d) for d in args.find_and_replace]
+
+    check_dependencies()
+
+    # Maps each fzf candidate line to the directory to create its
+    # session in. Existing sessions map to None (already created).
+    candidate_to_dir = {}
+
+    def candidates():
+        for session in tmux_session_list():
+            if session not in candidate_to_dir:
+                candidate_to_dir[session] = None
+                yield session
+        for path in walk_git_repos(args.walk_start, args.ignore):
+            name = path
+            for find, replace in fnrs:
+                name = name.replace(find, replace)
+            if name not in candidate_to_dir:
+                candidate_to_dir[name] = path
+                yield name
+
+    selected = fzf(candidates())
+    if selected is None:
+        return
+
+    if not tmux_session_exists(selected):
+        tmux_new_session(selected, candidate_to_dir[selected])
+    tmux_switch_session(selected)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="pick a tmux session with fzf, "
+        "creating it from a git repo if needed"
+    )
+    parser.add_argument(
+        "--ignore",
+        action="append",
+        default=[],
+        metavar="FRAGMENT",
+        help="path fragments to ignore when searching for git repos",
+    )
+    parser.add_argument(
+        "--find-and-replace",
+        action="append",
+        default=[],
+        metavar="FIND:REPLACE",
+        help="git-repo-path to session-name find-and-replace directives "
+        "(in the format FIND:REPLACE)",
+    )
+    parser.add_argument(
+        "--walk-start",
+        default=os.environ.get("HOME", "/"),
+        metavar="PATH",
+        help="path to start walking from",
+    )
+    return parser.parse_args()
+
+
+def parse_find_and_replace(directive):
+    find, sep, replace = directive.partition(":")
+    if not sep:
+        sys.exit("find-and-replace directive must be in the format: FIND:REPLACE")
+    return find, replace
+
+
+def fzf(lines):
+    """Run fzf, feeding it lines as they are produced.
+
+    Returns the selection, or None if the user cancelled or nothing
+    matched.
+    """
+    proc = subprocess.Popen(
+        ["fzf"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
+    )
+    try:
+        for line in lines:
+            proc.stdin.write(line + "\n")
+            proc.stdin.flush()
+    except BrokenPipeError:
+        pass  # fzf exited before reading all input (selected early or cancelled)
+    finally:
+        try:
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+    out = proc.stdout.read()
+    status = proc.wait()
+    if status in (1, 130):  # no match, or cancelled
+        return None
+    if status != 0:
+        sys.exit(f"fzf exited with status {status}")
+    return out.rstrip("\n")
+
+
+def walk_git_repos(start, ignore):
+    """Yield directories containing a .git entry, without descending
+    into them or into ignored paths."""
+    for dirpath, dirnames, filenames in os.walk(start):
+        if any(fragment in dirpath for fragment in ignore):
+            dirnames.clear()
+            continue
+        dirnames.sort()
+        if ".git" in dirnames or ".git" in filenames:
+            dirnames.clear()
+            yield dirpath
+
+
+def tmux_session_list():
+    result = subprocess.run(
+        ["tmux", "list-sessions", "-F", "#{session_name}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        sys.exit(f"tmux list-sessions: {result.stderr.strip()}")
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def tmux_session_exists(name):
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", "=" + name], capture_output=True
+    )
+    return result.returncode == 0
+
+
+def tmux_new_session(name, directory):
+    cmd = ["tmux", "new-session", "-s", name, "-d"]
+    if directory:
+        cmd += ["-c", directory]
+    subprocess.run(cmd, check=True)
+
+
+def tmux_switch_session(name):
+    subcommand = "switch-client" if os.environ.get("TMUX") else "attach-session"
+    subprocess.run(["tmux", subcommand, "-t", "=" + name], check=True)
+
+
+def check_dependencies():
+    for cmd in (["tmux", "-V"], ["fzf", "--version"]):
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as e:
+            sys.exit(f"checking for {cmd[0]}: {e}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except subprocess.CalledProcessError as e:
+        sys.exit(str(e))
