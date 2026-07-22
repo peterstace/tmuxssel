@@ -5,12 +5,12 @@ import os
 import subprocess
 import sys
 
-# Per-session tmux user option that holds a session's flag. Present (set to
-# "1") means flagged; unset means not flagged. The name is an implementation
-# detail: nothing outside this script needs to know it.
+# Per-window tmux user option that holds a window's flag. Present (set to
+# "1") means flagged; unset means not flagged. The name is part of the public
+# interface: status-line formats test it directly (see the README).
 FLAG_OPTION = "@ssel_flag"
 
-# Marker shown before a flagged session in the picker.
+# Marker shown before a session with a flagged window in the picker.
 FLAG_MARKER = "● "
 
 
@@ -24,7 +24,7 @@ def main():
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="pick a tmux session with fzf, or manage session flags"
+        description="pick a tmux session with fzf, or manage window flags"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -56,18 +56,18 @@ def parse_args():
 
     flag_parser = sub.add_parser(
         "flag",
-        help="get, set, clear, toggle, or count session flags",
+        help="get, set, clear, toggle, or count window flags",
     )
     flag_parser.add_argument(
         "action",
         choices=["get", "set", "clear", "toggle", "count"],
-        help="get/set/clear/toggle a session's flag, or count flagged sessions",
+        help="get/set/clear/toggle a window's flag, or count flagged windows",
     )
     flag_parser.add_argument(
-        "session",
+        "window",
         nargs="?",
-        metavar="SESSION",
-        help="session to act on (defaults to the current session)",
+        metavar="WINDOW",
+        help="window to act on (defaults to the current window)",
     )
 
     return parser.parse_args()
@@ -84,7 +84,7 @@ def pick(args):
     seen_names = set()
 
     def candidates():
-        flags = tmux_flag_map()
+        flags = session_flag_map()
         for name in sorted(flags, key=lambda n: not flags[n]):
             line = (FLAG_MARKER if flags[name] else "") + name
             if name not in seen_names:
@@ -112,85 +112,114 @@ def pick(args):
 
 def flag(args):
     if args.action == "count":
-        print(sum(tmux_flag_map().values()))
+        print(sum(flagged for _, _, flagged in tmux_list_windows()))
         return
 
-    session = args.session or current_session()
+    if args.window:
+        window_id = resolve_window(args.window)
+    else:
+        window_id = current_window()
 
     if args.action == "get":
-        print("1" if tmux_flag_map().get(session, False) else "0")
+        print("1" if window_flag_map().get(window_id, False) else "0")
         return
 
-    require_session(session)
     if args.action == "toggle":
-        set_flag(session, not tmux_flag_map().get(session, False))
+        set_flag(window_id, not window_flag_map().get(window_id, False))
     elif args.action == "set":
-        set_flag(session, True)
+        set_flag(window_id, True)
     elif args.action == "clear":
-        set_flag(session, False)
+        set_flag(window_id, False)
     refresh_status()
 
 
-def current_session():
+def current_window():
     # A process running inside a pane has TMUX_PANE set to that pane, which
-    # names its session unambiguously — even when a different session is the
-    # most-recently-active one (e.g. an async task flagging its own session
+    # names its window unambiguously — even when a different window is the
+    # most-recently-active one (e.g. an async task flagging its own window
     # after the user has switched away). The toggle key binding can't rely on
-    # this, because run-shell does not set TMUX_PANE, so it passes the session
+    # this, because run-shell does not set TMUX_PANE, so it passes the window
     # explicitly instead (see the README).
     pane = os.environ.get("TMUX_PANE")
     if pane:
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "-t", pane, "#{session_name}"],
+            ["tmux", "display-message", "-p", "-t", pane, "#{window_id}"],
             capture_output=True,
             text=True,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    sys.exit("cannot determine the current session; pass SESSION explicitly")
+    sys.exit("cannot determine the current window; pass WINDOW explicitly")
 
 
-def require_session(session):
-    if not tmux_session_exists(session):
-        sys.exit(f"no such session: {session}")
+def resolve_window(target):
+    """Resolve a tmux window target to its window ID (@N), which is
+    unambiguous and stable for the window's lifetime."""
+    result = subprocess.run(
+        ["tmux", "display-message", "-p", "-t", target, "#{window_id}"],
+        capture_output=True,
+        text=True,
+    )
+    window_id = result.stdout.strip()
+    if result.returncode != 0 or not window_id:
+        sys.exit(f"no such window: {target}")
+    return window_id
 
 
-def set_flag(session, flagged):
-    # The session is known to exist exactly (see require_session), so a bare
-    # -t target resolves to it rather than prefix-matching another session.
-    # set-option rejects the "=" exact-match prefix that the rest of the code
-    # uses, so it can't be applied here.
+def set_flag(window_id, flagged):
+    # window_id is an @-prefixed window ID (see resolve_window and
+    # current_window), so the -t target is unambiguous.
     if flagged:
-        cmd = ["tmux", "set-option", "-t", session, FLAG_OPTION, "1"]
+        cmd = ["tmux", "set-option", "-w", "-t", window_id, FLAG_OPTION, "1"]
     else:
-        cmd = ["tmux", "set-option", "-u", "-t", session, FLAG_OPTION]
+        cmd = ["tmux", "set-option", "-w", "-u", "-t", window_id, FLAG_OPTION]
     subprocess.run(cmd, check=True)
 
 
 def refresh_status():
-    # Redraw status lines immediately so the flag count and marker update
+    # Redraw status lines immediately so the flag count and markers update
     # without waiting for status-interval. With no client attached there is
     # nothing to redraw, so ignore the resulting error.
     subprocess.run(["tmux", "refresh-client", "-S"], stderr=subprocess.DEVNULL)
 
 
-def tmux_flag_map():
-    """Return an ordered mapping of session name to flagged bool, in tmux's
-    own session order."""
+def session_flag_map():
+    """Return an ordered mapping of session name to whether any of its
+    windows is flagged, in tmux's own session order."""
+    flags = {}
+    for session, _, flagged in tmux_list_windows():
+        flags[session] = flags.get(session, False) or flagged
+    return flags
+
+
+def window_flag_map():
+    """Return a mapping of window ID to flagged bool."""
+    return {wid: flagged for _, wid, flagged in tmux_list_windows()}
+
+
+def tmux_list_windows():
+    """Return a list of (session_name, window_id, flagged) tuples covering
+    every window on the server, in tmux's own session and window order."""
     result = subprocess.run(
-        ["tmux", "list-sessions", "-F", "#{session_name}\t#{" + FLAG_OPTION + "}"],
+        [
+            "tmux",
+            "list-windows",
+            "-a",
+            "-F",
+            "#{session_name}\t#{window_id}\t#{" + FLAG_OPTION + "}",
+        ],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        sys.exit(f"tmux list-sessions: {result.stderr.strip()}")
-    flags = {}
+        sys.exit(f"tmux list-windows: {result.stderr.strip()}")
+    windows = []
     for line in result.stdout.splitlines():
         if not line.strip():
             continue
-        name, _, value = line.partition("\t")
-        flags[name] = value != ""
-    return flags
+        session, window_id, value = line.rsplit("\t", 2)
+        windows.append((session, window_id, value != ""))
+    return windows
 
 
 def tmux_session_exists(name):

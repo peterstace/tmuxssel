@@ -1,8 +1,9 @@
 # tmuxssel
 
 A tmux session picker built on [fzf](https://github.com/junegunn/fzf), plus a
-per-session "flag" that long-running tasks can raise and that the picker sorts
-to the top.
+per-window "flag" that long-running tasks can raise. The picker sorts sessions
+containing flagged windows to the top, and the tmux status line can mark each
+flagged window individually.
 
 The picker shows a fuzzy-searchable menu containing:
 
@@ -34,7 +35,7 @@ ln -s "$PWD/tmuxssel" ~/bin/tmuxssel
 ## Usage
 
 tmuxssel has two subcommands: `pick` (the session picker) and `flag`
-(session flag management).
+(window flag management).
 
 ### `tmuxssel pick`
 
@@ -51,7 +52,8 @@ tmuxssel pick [--walk-start PATH] [--ignore FRAGMENT]
   names by replacing `FIND` with `REPLACE`. Applied in the order given. May
   be given multiple times.
 
-Flagged sessions are listed first, each marked with a leading `●`.
+Sessions containing a flagged window are listed first, each marked with a
+leading `●`.
 
 #### Example
 
@@ -75,62 +77,61 @@ bind-key S display-popup -E "tmuxssel pick --ignore .cache ..."
 
 ### `tmuxssel flag`
 
-Each session carries a boolean flag, stored as a tmux user option on the
-session itself, so it lives and dies with the session — there is no external
-state to keep in sync. Flagged sessions sort to the top of the picker. The
-intended use is for a long-running task to raise its session's flag when it
-finishes, and for the status bar to show how many sessions are waiting.
+Each window carries a boolean flag, stored as the `@ssel_flag` tmux user
+option on the window itself, so it lives and dies with the window — there is
+no external state to keep in sync. A session containing a flagged window
+sorts to the top of the picker. The intended use is for a long-running task
+to raise its window's flag when it finishes, and for the status bar to mark
+the windows that are waiting.
 
 ```
-tmuxssel flag {get|set|clear|toggle|count} [SESSION]
+tmuxssel flag {get|set|clear|toggle|count} [WINDOW]
 ```
 
-- `get` — print `1` if the session is flagged, otherwise `0`.
+- `get` — print `1` if the window is flagged, otherwise `0`.
 - `set` / `clear` — raise or lower the flag.
 - `toggle` — flip the flag.
-- `count` — print the number of flagged sessions.
+- `count` — print the number of flagged windows.
 
-`SESSION` defaults to the current session (resolved from `$TMUX_PANE`), so a
-task running inside its own session can raise its flag on completion with:
+`WINDOW` is any tmux window target (a window ID such as `@5`, or a name such
+as `mysession:mywindow`) and defaults to the current window (resolved from
+`$TMUX_PANE`), so a task running inside its own window can raise its flag on
+completion with:
 
 ```sh
 make deploy; tmuxssel flag set
 ```
 
-Bind toggling the current session's flag to a key. `run-shell` does not set
-`$TMUX_PANE`, so pass the session in explicitly — tmux expands
-`#{session_name}` to the session the key was pressed in:
+Bind toggling the current window's flag to a key. `run-shell` does not set
+`$TMUX_PANE`, so pass the window in explicitly — tmux expands `#{window_id}`
+to the window the key was pressed in:
 
 ```
-bind-key F run-shell "tmuxssel flag toggle #{session_name}"
+bind-key F run-shell "tmuxssel flag toggle '#{window_id}'"
 ```
 
 ## Status bar
 
-`count` and `get` are meant to be wired into the tmux status bar. `count` is
-a single global number, so it can be called directly:
+Because the flag is a window option, the status line's window list can show
+it directly: `window-status-format` is expanded once per window, so a
+`#{?...}` conditional on `@ssel_flag` marks exactly the flagged windows, with
+no external command involved:
+
+```
+set -g window-status-format '#{?#{@ssel_flag},#[fg=red]● #[default],}#I:#W#F'
+set -g window-status-current-format '#{?#{@ssel_flag},#[fg=red]● #[default],}#I:#W#F'
+```
+
+`count` is a single global number, so it can be called from a `#(...)`
+command:
 
 ```
 set -g status-right "#(tmuxssel flag count) flagged"
 ```
 
-`get` reports one specific session, so the status format must pass the session
-name into the command. tmux caches each distinct `#(...)` command string
-separately, so interpolating `#{session_name}` gives each session its own
-result:
-
-```
-set -g status-right "#(tmuxssel flag get #{session_name}) #(tmuxssel flag count)"
-```
-
-`get` prints `1`/`0`; turning that into a marker is left to your status
-configuration, because a tmux `#{?...}` conditional can't test the output of
-an asynchronous `#(...)` command. A status-generator script can branch on it
-directly.
-
-tmux runs `#(...)` commands asynchronously, so after a flag changes the status
-bar updates a moment later. `flag` mutations call `refresh-client -S` to
-trigger that redraw promptly.
+tmux runs `#(...)` commands asynchronously, so after a flag changes the count
+updates a moment later. `flag` mutations call `refresh-client -S` to trigger
+that redraw promptly.
 
 ## Behaviour
 
