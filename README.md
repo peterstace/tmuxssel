@@ -1,9 +1,8 @@
 # tmuxssel
 
-A tmux session picker built on [fzf](https://github.com/junegunn/fzf), plus a
-per-window "flag" that long-running tasks can raise. The picker sorts sessions
-containing flagged windows to the top, and the tmux status line can mark each
-flagged window individually.
+A tmux session picker built on [fzf](https://github.com/junegunn/fzf). The
+picker sorts sessions containing flagged windows to the top (see
+[Window flags](#window-flags)).
 
 The picker shows a fuzzy-searchable menu containing:
 
@@ -34,14 +33,9 @@ ln -s "$PWD/tmuxssel" ~/bin/tmuxssel
 
 ## Usage
 
-tmuxssel has two subcommands: `pick` (the session picker) and `flag`
-(window flag management).
-
-### `tmuxssel pick`
-
 ```
-tmuxssel pick [--walk-start PATH] [--ignore FRAGMENT]
-              [--find-and-replace FIND:REPLACE]
+tmuxssel [--walk-start PATH] [--ignore FRAGMENT]
+         [--find-and-replace FIND:REPLACE]
 ```
 
 - `--walk-start PATH` — where to start the filesystem walk. Defaults to
@@ -55,10 +49,10 @@ tmuxssel pick [--walk-start PATH] [--ignore FRAGMENT]
 Sessions containing a flagged window are listed first, each marked with a
 leading `●`.
 
-#### Example
+### Example
 
 ```sh
-tmuxssel pick \
+tmuxssel \
     --ignore .cache \
     --ignore go/pkg \
     --find-and-replace "$HOME/repos/github.com/:" \
@@ -72,66 +66,29 @@ With these directives, the repository at
 To bind it to a tmux key (tmux 3.2+):
 
 ```
-bind-key S display-popup -E "tmuxssel pick --ignore .cache ..."
+bind-key S display-popup -E "tmuxssel --ignore .cache ..."
 ```
 
-### `tmuxssel flag`
+## Window flags
 
-Each window carries a boolean flag, stored as the `@ssel_flag` tmux user
-option on the window itself, so it lives and dies with the window — there is
-no external state to keep in sync. A session containing a flagged window
-sorts to the top of the picker. The intended use is for a long-running task
-to raise its window's flag when it finishes, and for the status bar to mark
-the windows that are waiting.
+tmuxssel treats a window as flagged when the window's `@ssel_flag` tmux user
+option is set. Because the flag is a window option, it lives and dies with
+the window — there is no external state to keep in sync.
 
-```
-tmuxssel flag {get|set|clear|toggle|count} [WINDOW]
-```
-
-- `get` — print `1` if the window is flagged, otherwise `0`.
-- `set` / `clear` — raise or lower the flag.
-- `toggle` — flip the flag.
-- `count` — print the number of flagged windows.
-
-`WINDOW` is any tmux window target (a window ID such as `@5`, or a name such
-as `mysession:mywindow`) and defaults to the current window (resolved from
-`$TMUX_PANE`), so a task running inside its own window can raise its flag on
-completion with:
+tmuxssel only reads the option; raising and clearing flags is left to tmux
+key bindings and scripts:
 
 ```sh
-make deploy; tmuxssel flag set
+tmux set-option -w @ssel_flag 1   # raise the current window's flag
+tmux set-option -wu @ssel_flag    # clear it
 ```
 
-Bind toggling the current window's flag to a key. `run-shell` does not set
-`$TMUX_PANE`, so pass the window in explicitly — tmux expands `#{window_id}`
-to the window the key was pressed in:
+The intended use is for a long-running task to raise its window's flag when
+it finishes:
 
+```sh
+make deploy; tmux set-option -w @ssel_flag 1
 ```
-bind-key F run-shell "tmuxssel flag toggle '#{window_id}'"
-```
-
-## Status bar
-
-Because the flag is a window option, the status line's window list can show
-it directly: `window-status-format` is expanded once per window, so a
-`#{?...}` conditional on `@ssel_flag` marks exactly the flagged windows, with
-no external command involved:
-
-```
-set -g window-status-format '#{?#{@ssel_flag},#[fg=red]● #[default],}#I:#W#F'
-set -g window-status-current-format '#{?#{@ssel_flag},#[fg=red]● #[default],}#I:#W#F'
-```
-
-`count` is a single global number, so it can be called from a `#(...)`
-command:
-
-```
-set -g status-right "#(tmuxssel flag count) flagged"
-```
-
-tmux runs `#(...)` commands asynchronously, so after a flag changes the count
-updates a moment later. `flag` mutations call `refresh-client -S` to trigger
-that redraw promptly.
 
 ## Behaviour
 
